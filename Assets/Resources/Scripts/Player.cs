@@ -2,11 +2,10 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.EventSystems;
 
 namespace Checkers
 {
-    public abstract class Player : MonoBehaviour
+    public abstract class Player : MonoBehaviour, IObservable
     {
         [SerializeField] protected Camera _camera;
         [SerializeField] protected Player _oppositePlayer;
@@ -43,6 +42,21 @@ namespace Checkers
         protected CellComponent[,] _cells = new CellComponent[8,8];
         public CellComponent[,] Cells { get { return _cells; } }
 
+
+
+        #region //changed or added for adding observer
+        protected static bool _isNewGameStatic = false;
+        protected static int _numberOfClicksStatic = 0;
+
+        protected List<ChipComponent> _chips = new List<ChipComponent>();
+        protected List<string> _listOfData = new List<string>();
+
+        public static event SaveDataHandler OnSaveData;
+        public delegate void SaveDataHandler(string data);
+
+        public static event ClearDataHandler OnClearData;
+        public delegate void ClearDataHandler();
+
         protected void Awake()
         {
             _camera = Camera.main;
@@ -52,25 +66,21 @@ namespace Checkers
             _cameraPosition1 = transform.Find("CameraPosition1");
             _cameraPosition2 = transform.Find("CameraPosition2");
             _cameraPosition3 = transform.Find("CameraPosition3");
+            Observer.OnReturnData += GetData;
         }
 
-        protected abstract void SetPlayerColor();
-
-        protected abstract void SetCellsArray();
-
-        protected abstract void SetOppositePlayer();
-        
         protected void OnEnable()
         {
-            BaseClickComponent.OnClickEventHandler += OnClick;
-
             ChipComponent[] temp = FindObjectsOfType<ChipComponent>();
             List<ChipComponent> chips = new List<ChipComponent>();
             foreach (ChipComponent chip in temp)
             {
                 if (chip.GetColor == _currentPlayerColor) chips.Add(chip);
             }
-            ChipCount = chips.Count;
+            _chips.Clear();
+            _chips.TrimExcess();
+            _chips = chips;
+            ChipCount = _chips.Count;
 
             if (ChipCount <= 0) return;
             _disableInput = true;
@@ -84,17 +94,57 @@ namespace Checkers
             }
         }
 
-        protected void OnDisable()
+        public void GetData(List<string> listOfData)
         {
             BaseClickComponent.OnClickEventHandler -= OnClick;
+            _numberOfClicksStatic = 0;
+            _listOfData = listOfData;
+            if (this.enabled) PlayData();
         }
 
-        protected void ClickCaller(string componentName)
+        private void PlayData()
         {
+            char[] charArray = _listOfData[_numberOfClicksStatic].ToCharArray();
+            string componentName;
+            BaseClickComponent component = null;
+            if (_listOfData[_numberOfClicksStatic].StartsWith(" "))
+            {
+                componentName = charArray[14].ToString() + charArray[15].ToString();
+                foreach (CellComponent cell in Cells)
+                {
+                    if (cell.name == componentName) component = cell;
+                }
+            }
+            else
+            {
+                componentName = charArray[6].ToString() + charArray[7].ToString()
+                    + charArray[8].ToString() + charArray[9].ToString() + charArray[10].ToString() + charArray[11].ToString();
+                foreach (ChipComponent chip in _chips)
+                {
+                    if (chip.name == componentName) component = chip;
+                }
+            }
+            _numberOfClicksStatic++;
+            Click(component, false);
+        }
 
+        public void WriteData(string data)
+        {
+            OnSaveData?.Invoke(data);
         }
 
         protected void OnClick(BaseClickComponent component)
+        {
+            if (!_isNewGameStatic)
+            {
+                OnClearData?.Invoke();
+                _isNewGameStatic = true;
+            }
+
+            Click(component, true);
+        }
+
+        protected void Click(BaseClickComponent component, bool isRecording)
         {
             if (_disableInput) return;
             var type = component.GetType();
@@ -108,6 +158,8 @@ namespace Checkers
                 _chip = (ChipComponent)component;
                 GetDestinationsAndTargets(_chip, _chip.Pair);
                 SetCellsAndChipsHighlight(BaseClickComponent.HighlightCondition.CanMoveToCell, BaseClickComponent.HighlightCondition.CanBeEatenChip, true);
+                if (isRecording) WriteData($"{component.GetColor} {component.name} was selected");
+                if (_numberOfClicksStatic < _listOfData.Count) PlayData();
             }
             else if (type == typeof(CellComponent))
             {
@@ -140,8 +192,40 @@ namespace Checkers
                     {
                         StartCoroutine(SwitchTurn(_chipMoveTime));
                     }
+                    if (isRecording) WriteData($" and moved to {component.name}");
                 }
             }
+        }
+
+        protected IEnumerator MoveCamera()
+        {
+            yield return MoveFromTo(_camera.transform.position, _cameraPosition1.position,
+                _camera.transform.rotation, _cameraPosition1.transform.rotation, _cameraMoveTime / 4);
+            yield return MoveFromTo(_cameraPosition1.position, _cameraPosition2.position,
+                _cameraPosition1.rotation, _cameraPosition2.transform.rotation, _cameraMoveTime / 2);
+            yield return MoveFromTo(_cameraPosition2.position, _cameraPosition3.position,
+                _cameraPosition2.rotation, _cameraPosition3.rotation, _cameraMoveTime / 4);
+            _disableInput = false;
+            if (_listOfData.Count > 0)
+            {
+                if (_numberOfClicksStatic < _listOfData.Count) PlayData();
+            }
+            else
+            {
+                BaseClickComponent.OnClickEventHandler += OnClick;
+            }
+        }
+        #endregion
+
+        protected abstract void SetPlayerColor();
+
+        protected abstract void SetCellsArray();
+
+        protected abstract void SetOppositePlayer();
+        
+        protected void OnDisable()
+        {
+            BaseClickComponent.OnClickEventHandler -= OnClick;
         }
 
         protected void GetDestinationsAndTargets(ChipComponent chip, BaseClickComponent cell)
@@ -286,21 +370,10 @@ namespace Checkers
         protected IEnumerator SwitchTurn(float time)
         {
             yield return new WaitForSeconds(time);
-            _oppositePlayer.enabled = true;
             this.enabled = false;
+            _oppositePlayer.enabled = true;
+            
         }
-
-        protected IEnumerator MoveCamera()
-        {
-            yield return MoveFromTo(_camera.transform.position, _cameraPosition1.position,
-                _camera.transform.rotation, _cameraPosition1.transform.rotation, _cameraMoveTime / 4);
-            yield return MoveFromTo(_cameraPosition1.position, _cameraPosition2.position,
-                _cameraPosition1.rotation, _cameraPosition2.transform.rotation, _cameraMoveTime / 2);
-            yield return MoveFromTo(_cameraPosition2.position, _cameraPosition3.position,
-                _cameraPosition2.rotation, _cameraPosition3.rotation, _cameraMoveTime / 4);
-            _disableInput = false;
-        }
-
 
         protected IEnumerator MoveFromTo(Vector3 startPosition, Vector3 endPosition, Quaternion startRotation, Quaternion endRotation, float time)
         {
@@ -316,5 +389,14 @@ namespace Checkers
             _camera.transform.position = endPosition;
             _camera.transform.rotation = endRotation;
         }
+    }
+
+    public interface IObserver
+    {
+        void SaveData(string data);
+
+        void ReadData();
+
+        void ClearData();
     }
 }

@@ -1,10 +1,9 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.Serialization.Formatters.Binary;
 using UnityEngine;
 
-public class Observer : MonoBehaviour
+public class Observer : MonoBehaviour, Checkers.IObserver
 {
     private static string path;
 
@@ -13,49 +12,68 @@ public class Observer : MonoBehaviour
     private void Awake()
     {
         path = Application.dataPath + "/observer.txt";
-        FileStream newFile = new FileStream(path, FileMode.OpenOrCreate);
-        newFile.Close();
-        SaveData("this\n");
-        SaveData("is\n");
-        SaveData("my\n");
-        SaveData("text!");
+        FileStream file = new FileStream(path, FileMode.OpenOrCreate);
+        file.Close();
 
+        Checkers.Player.OnSaveData += SaveData;
+        Checkers.Player.OnClearData += ClearData;
     }
 
-    private void OnEnable()
+    private void OnDisable()
     {
-        foreach (string element in _dataStrings)
-        {
-            print(element);
-        }
+        Checkers.Player.OnSaveData -= SaveData;
+        Checkers.Player.OnClearData -= ClearData;
     }
 
-    private static void SaveData(string text)
+    private void Start()
     {
-        using(FileStream stream = File.OpenWrite(path))
+        ReadData();
+    }
+
+    public void SaveData(string data)
+    {
+        using(FileStream stream = new FileStream(path, FileMode.Append))
         {
             using(BinaryWriter writer = new BinaryWriter(stream, System.Text.Encoding.Default, false))
             {
-                writer.Write(text);
+                writer.Write($"{data}\n");
             }
         }
     }
 
-    private void ReadData()
+    public void ReadData()
     {
         _dataStrings.Clear();
         _dataStrings.TrimExcess();
 
-        FileStream stream = File.OpenRead(path);
-
-        BinaryReader binaryData = new BinaryReader(stream);
-        
-        while(binaryData.PeekChar() != -1)
+        using(FileStream stream = File.OpenRead(path))
         {
-            _dataStrings.Add(binaryData.ReadString());
+            using(BinaryReader binaryData = new BinaryReader(stream))
+            {
+                _dataStrings.Add(binaryData.ReadString());
+                while (binaryData.PeekChar() != -1)
+                {
+                    _dataStrings.Add(binaryData.ReadString());
+                }
+            }
         }
+
+        OnReturnData?.Invoke(_dataStrings);
     }
 
-    //public static event ClickEventHandler OnClickEventHandler;
-    //public delegate void ClickEventHandler(BaseClickComponent component);
+    public void ClearData()
+    {
+        FileStream newFile = new FileStream(path, FileMode.Create);
+        newFile.Close();
+    }
+
+    public static event ReturnDataHandler OnReturnData;
+    public delegate void ReturnDataHandler(List<string> data);
+}
+
+public interface IObservable
+{
+    void GetData(List<string> listOfData);
+
+    void WriteData(string data);
 }

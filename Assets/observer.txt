@@ -1,1 +1,13 @@
-text!
+White Chip01 was selected
+White Chip09 was selected
+ and moved to B4
+Black Chip12 was selected
+ and moved to C5
+White Chip10 was selected
+ and moved to D4
+Black Chip12 was selected
+ and moved to A3
+White Chip10 was selected
+ and moved to E5
+Black Chip10 was selected
+ and moved to D4
